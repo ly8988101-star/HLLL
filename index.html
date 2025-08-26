@@ -56,7 +56,14 @@
     <div id="hud" class="overlay no-bg">
         <div class="hud-top">
             <div id="clue-counter" class="chip">أدلة: 0 / 5</div>
-            <button id="btn-mute" class="chip">🔊</button>
+            <div class="hud-right">
+                <button id="btn-pause" class="chip">⏸️</button>
+                <button id="btn-mute" class="chip">🔊</button>
+            </div>
+        </div>
+        <div class="hud-bars">
+            <div class="bar" id="bar-stamina"><span class="bar-label">الجهد</span><div class="bar-inner"></div></div>
+            <div class="bar" id="bar-sanity"><span class="bar-label">العقل</span><div class="bar-inner"></div></div>
         </div>
         <div id="hud-message" class="hud-message"></div>
     </div>
@@ -85,6 +92,47 @@
             <div class="stick"></div>
         </div>
         <div id="look-area" class="look-area"></div>
+        <div class="right-buttons">
+            <button id="btn-torch" class="btn ghost">مصباح</button>
+            <button id="btn-crouch" class="btn ghost">انخفاض</button>
+            <button id="btn-sprint" class="btn ghost hold">جري</button>
+        </div>
+    </div>
+
+    <!-- FX Layer -->
+    <div id="fx-layer" class="overlay no-bg">
+        <div id="fx-vignette" class="fx-vignette"></div>
+        <div id="fx-sanity" class="fx-sanity"></div>
+    </div>
+
+    <!-- Pause / Settings / Inventory -->
+    <div id="pause-overlay" class="overlay">
+        <div class="menu-card">
+            <h2>قائمة الإيقاف</h2>
+            <div class="settings-grid">
+                <label>الجودة
+                    <select id="quality-select">
+                        <option value="low">منخفضة</option>
+                        <option value="medium" selected>متوسطة</option>
+                        <option value="high">عالية</option>
+                    </select>
+                </label>
+                <label>حساسية النظر
+                    <input id="look-sensitivity" type="range" min="0.2" max="1.5" step="0.05" value="1.0" />
+                </label>
+                <label>حجم الصوت
+                    <input id="master-volume" type="range" min="0" max="1" step="0.01" value="0.9" />
+                </label>
+            </div>
+            <div class="inventory">
+                <h3>الموجودات</h3>
+                <ul id="inventory-list"></ul>
+            </div>
+            <div class="menu-actions">
+                <button id="btn-resume" class="btn primary">متابعة</button>
+                <button id="btn-save-now" class="btn">حفظ الآن</button>
+            </div>
+        </div>
     </div>
 
     <script src="./game.js"></script>

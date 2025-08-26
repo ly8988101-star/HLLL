@@ -6,7 +6,7 @@
    ========================================================= */
 const App = {
   version: '1.0.0',
-  state: 'menu', // 'menu' | 'intro' | 'vision' | 'playing' | 'gameover' | 'ending'
+  state: 'menu', // 'menu' | 'intro' | 'vision' | 'playing' | 'paused' | 'gameover' | 'ending'
   canvas: null,
   renderer: null,
   scene: null,
@@ -19,6 +19,7 @@ const App = {
     draggingLook: false
   },
   ui: {},
+  settings: { sensitivity: 1.0, quality: 'medium', masterVolume: 0.9 },
   saveKey: 'forest_whisper_save_v1',
   rng: (() => { // lightweight RNG for procedural placement
     let seed = 1337;
@@ -47,23 +48,27 @@ const AudioManager = {
   buffers: {},
   footstepCooldown: 0,
   _ambientHandle: null,
+  breathTimer: 0,
+  whisperTimer: 0,
 
   async init(){
     if(this.context) return;
     const Ctx = window.AudioContext || window.webkitAudioContext;
     this.context = new Ctx();
     this.masterGain = this.context.createGain();
-    this.masterGain.gain.value = 0.9;
+    this.masterGain.gain.value = App.settings.masterVolume;
     this.masterGain.connect(this.context.destination);
 
     // Generate simple procedural sounds to avoid external assets
     this.buffers.ambient = this.createDroneBuffer(40, 120);
     this.buffers.step = this.createNoiseTapBuffer(0.09);
     this.buffers.monster = this.createHowlBuffer(0.8);
+    this.buffers.breath = this.createBreathBuffer(1.2);
+    this.buffers.whisper = this.createWhisperBuffer(0.9);
   },
 
   resume(){ this.context && this.context.resume(); },
-  muteToggle(){ this.isMuted = !this.isMuted; this.masterGain.gain.value = this.isMuted ? 0.0 : 0.9; return this.isMuted; },
+  muteToggle(){ this.isMuted = !this.isMuted; this.masterGain.gain.value = this.isMuted ? 0.0 : App.settings.masterVolume; return this.isMuted; },
 
   playBuffer(buf, {loop=false, gain=1.0, rate=1.0} = {}){
     if(!this.context) return null;
@@ -139,6 +144,37 @@ AudioManager.ensureAmbient = async function(){
   if(!this._ambientHandle){
     this._ambientHandle = this.playBuffer(this.buffers.ambient, { loop:true, gain:0.6 });
   }
+};
+
+// تنفس متسارع عند انخفاض الجهد
+AudioManager.createBreathBuffer = function(dur = 1.2){
+  const sr = 44100, len = Math.max(1, Math.floor(sr * dur));
+  const buf = this.context.createBuffer(1, len, sr);
+  const data = buf.getChannelData(0);
+  let val = 0;
+  for(let i=0;i<len;i++){
+    val += (Math.random()*2-1) * 0.02; // brown noise
+    val *= 0.98;
+    const t = i/len;
+    const env = Math.sin(Math.min(1, t)*Math.PI); // in-out
+    data[i] = val * env * 0.7;
+  }
+  return buf;
+};
+
+// همسات تظهر مع قلة العقل أو قرب الوحش
+AudioManager.createWhisperBuffer = function(dur = 0.9){
+  const sr = 44100, len = Math.max(1, Math.floor(sr * dur));
+  const buf = this.context.createBuffer(1, len, sr);
+  const data = buf.getChannelData(0);
+  for(let i=0;i<len;i++){
+    const t = i/len;
+    const n = (Math.random()*2-1);
+    const band = Math.sin(2*Math.PI*1200*i/sr)*0.4 + Math.sin(2*Math.PI*900*i/sr)*0.3;
+    const env = Math.pow(1 - Math.abs(0.5 - t)*2, 2);
+    data[i] = (n*0.15 + band*0.1) * env;
+  }
+  return buf;
 };
 
 /* =========================================================
@@ -416,17 +452,30 @@ const Forest = {
 const Player = {
   holder: new THREE.Object3D(),
   speed: 6.0,
+  baseSpeed: 6.0,
+  sprintSpeed: 9.0,
+  crouchSpeed: 3.5,
   velocity: new THREE.Vector3(),
   yaw: 0,
   pitch: 0,
   cameraHeight: 1.7,
   colliderRadius: 0.8,
+  stamina: 1.0,
+  sanity: 1.0,
+  torchOn: false,
+  crouching: false,
+  sprinting: false,
+  torchLight: null,
 
   init(){
     App.scene.add(this.holder);
     App.camera.position.set(0, this.cameraHeight, 6);
     this.holder.position.set(0, 0, 0);
     this.yaw = Math.PI; // face portal initially
+    // Torch light (spotlight simplified as point light for perf)
+    const light = new THREE.PointLight(0xfff3d1, 0.0, 12, 1.9);
+    App.camera.add(light);
+    this.torchLight = light;
   },
 
   getPosition(){ return this.holder.position; },
@@ -442,8 +491,9 @@ const Player = {
       forward = moveY * n; strafe = moveX * n;
     }
     // Update yaw/pitch from look input
-    this.yaw -= App.input.look.dx * 0.0035;
-    this.pitch -= App.input.look.dy * 0.0025;
+    const sens = App.settings.sensitivity;
+    this.yaw -= App.input.look.dx * 0.0035 * sens;
+    this.pitch -= App.input.look.dy * 0.0025 * sens;
     this.pitch = clamp(this.pitch, -1.0, 1.0);
     App.input.look.dx = 0; App.input.look.dy = 0;
 
@@ -451,7 +501,11 @@ const Player = {
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     const dirX = (forward * sin + strafe * cos);
     const dirZ = (forward * cos - strafe * sin);
-    this.velocity.set(dirX, 0, dirZ).multiplyScalar(this.speed);
+    // Adjust speed by state
+    let currentSpeed = this.baseSpeed;
+    if(this.sprinting && this.stamina > 0.25) currentSpeed = this.sprintSpeed;
+    if(this.crouching) currentSpeed = this.crouchSpeed;
+    this.velocity.set(dirX, 0, dirZ).multiplyScalar(currentSpeed);
     this.holder.position.x += this.velocity.x * dt;
     this.holder.position.z += this.velocity.z * dt;
 
@@ -470,8 +524,30 @@ const Player = {
     }
 
     // Camera follow
-    App.camera.position.copy(this.holder.position).add(new THREE.Vector3(0, this.cameraHeight, 0));
+    const camHeight = this.crouching ? this.cameraHeight * 0.7 : this.cameraHeight;
+    App.camera.position.copy(this.holder.position).add(new THREE.Vector3(0, camHeight, 0));
     App.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+
+    // Torch intensity
+    this.torchLight.intensity = this.torchOn ? 1.0 : 0.0;
+    this.torchLight.distance = this.torchOn ? 12 : 0.0;
+
+    // Stamina drain/recover
+    if(this.sprinting && moveLen > 0.05){ this.stamina -= dt * 0.22; }
+    else { this.stamina += dt * 0.16; }
+    this.stamina = clamp(this.stamina, 0, 1);
+    if(this.stamina <= 0.02) this.sprinting = false;
+
+    // Sanity affected by monster proximity (closer monster -> faster drain), torch helps slightly
+    const proximity = Monster.proximity || 999;
+    const fear = Math.max(0, 1 - proximity/30);
+    const torchMitigate = this.torchOn ? 0.4 : 1.0;
+    this.sanity -= dt * fear * 0.06 * torchMitigate;
+    this.sanity += dt * 0.012; // slow recovery
+    this.sanity = clamp(this.sanity, 0, 1);
+
+    // Update HUD bars and FX
+    UIHud.updateBars(this.stamina, this.sanity);
   }
 };
 
@@ -487,6 +563,8 @@ const Monster = {
   active: true,
   proximity: 999,
   howlTimer: 0,
+  state: 'lurking', // 'lurking' | 'hunting' | 'vanish' | 'illusion'
+  illusionMesh: null,
 
   init(){
     const geo = new THREE.ConeGeometry(1.2, 3.2, 6);
@@ -496,18 +574,37 @@ const Monster = {
     m.position.set(0, 1.6, -Forest.bounds + 30);
     this.mesh = m;
     App.scene.add(m);
+
+    // Illusion: faint ghost that flickers to mislead
+    const ig = new THREE.ConeGeometry(0.8, 2.2, 5);
+    const im = new THREE.MeshBasicMaterial({ color: 0x58e0b4, transparent:true, opacity:0.1 });
+    this.illusionMesh = new THREE.Mesh(ig, im);
+    this.illusionMesh.position.set(6, 1.1, 6);
+    this.illusionMesh.visible = false;
+    App.scene.add(this.illusionMesh);
   },
 
   update(dt, time){
     if(!this.active) return;
     const playerPos = Player.getPosition();
 
-    // Surprise spawns behind trees
+    // State switching
     if(time - this.lastSpawnTime > this.spawnInterval){
       this.lastSpawnTime = time;
+      const roll = App.rng.next();
+      if(roll < 0.2){ this.state = 'illusion'; }
+      else if(roll < 0.7){ this.state = 'lurking'; }
+      else { this.state = 'hunting'; }
+
+      // Reposition behind trees
       const angle = App.rng.next() * Math.PI * 2;
       const dist = 18 + App.rng.next() * 24;
       this.mesh.position.set(playerPos.x + Math.sin(angle)*dist, 1.6, playerPos.z + Math.cos(angle)*dist);
+      // Illusion spawn elsewhere
+      const ia = angle + Math.PI * 0.7;
+      const id = dist * (0.6 + App.rng.next()*0.5);
+      this.illusionMesh.position.set(playerPos.x + Math.sin(ia)*id, 1.2, playerPos.z + Math.cos(ia)*id);
+      this.illusionMesh.visible = (this.state === 'illusion');
     }
 
     // Chase towards player when within 36 units
@@ -515,7 +612,7 @@ const Monster = {
     const dz = playerPos.z - this.mesh.position.z;
     const dist = Math.sqrt(dx*dx + dz*dz);
     this.proximity = dist;
-    if(dist < 36){
+    if(this.state !== 'illusion' && dist < 36){
       const vx = (dx / Math.max(0.001, dist)) * this.speed;
       const vz = (dz / Math.max(0.001, dist)) * this.speed;
       this.mesh.position.x += vx * dt;
@@ -532,7 +629,7 @@ const Monster = {
     }
 
     // اقتراب الوحش الشديد = فقدان الاسم بالكامل => نهاية مأساوية
-    if(dist < 1.6){
+    if(this.state !== 'illusion' && dist < 1.6){
       GameFlow.gameOver(false);
     }
   }
@@ -545,6 +642,7 @@ const Gameplay = {
   collected: new Set(),
   required: 5,
   messageTimer: 0,
+  inventory: [],
 
   // مزامنة ظهور/اختفاء الأدلة بعد التحميل من الحفظ
   applyCollectedVisibility(){
@@ -583,6 +681,8 @@ const Gameplay = {
       if(dist < 1.6){
         this.collected.add(orb.userData.index);
         orb.visible = false;
+        this.inventory.push(`ومضة ${orb.userData.index+1}`);
+        UIHud.refreshInventory(this.inventory);
         this.showMessage('ومضة استعادة… جزء من الاسم عاد إليك');
         // Footstep-like cue
         AudioManager.playBuffer(AudioManager.buffers.step, { gain: 1.0 });
@@ -627,6 +727,9 @@ const Controls = {
   origin: {x:0, y:0},
   active: false,
   lookActive: false,
+  btnTorch: null,
+  btnCrouch: null,
+  btnSprint: null,
 
   init(){
     this.joy = document.getElementById('joystick-left');
@@ -658,6 +761,31 @@ const Controls = {
     look.addEventListener('mousedown', ()=>{ this.lookActive = true; });
     window.addEventListener('mousemove', (e)=>{ if(!this.lookActive) return; App.input.look.dx += e.movementX; App.input.look.dy += e.movementY; });
     window.addEventListener('mouseup', ()=>{ this.lookActive = false; });
+
+    // Torch / Crouch / Sprint buttons
+    this.btnTorch = document.getElementById('btn-torch');
+    this.btnCrouch = document.getElementById('btn-crouch');
+    this.btnSprint = document.getElementById('btn-sprint');
+    if(this.btnTorch){
+      const toggleTorch = ()=>{ Player.torchOn = !Player.torchOn; this.btnTorch.classList.toggle('active', Player.torchOn); };
+      this.btnTorch.addEventListener('click', toggleTorch);
+      this.btnTorch.addEventListener('touchstart', (e)=>{ e.preventDefault(); toggleTorch(); }, {passive:false});
+    }
+    if(this.btnCrouch){
+      const toggleCrouch = ()=>{ Player.crouching = !Player.crouching; Player.sprinting = false; this.btnCrouch.classList.toggle('active', Player.crouching); };
+      this.btnCrouch.addEventListener('click', toggleCrouch);
+      this.btnCrouch.addEventListener('touchstart', (e)=>{ e.preventDefault(); toggleCrouch(); }, {passive:false});
+    }
+    if(this.btnSprint){
+      const startSprint = ()=>{ if(Player.stamina > 0.2 && !Player.crouching) Player.sprinting = true; };
+      const stopSprint  = ()=>{ Player.sprinting = false; };
+      this.btnSprint.addEventListener('mousedown', startSprint);
+      this.btnSprint.addEventListener('mouseup', stopSprint);
+      this.btnSprint.addEventListener('mouseleave', stopSprint);
+      this.btnSprint.addEventListener('touchstart', (e)=>{ e.preventDefault(); startSprint(); }, {passive:false});
+      this.btnSprint.addEventListener('touchend', (e)=>{ e.preventDefault(); stopSprint(); }, {passive:false});
+      this.btnSprint.addEventListener('touchcancel', (e)=>{ e.preventDefault(); stopSprint(); }, {passive:false});
+    }
   },
 
   _point(e){
@@ -691,7 +819,7 @@ const SaveSystem = {
   save(){
     const data = {
       collected: Array.from(Gameplay.collected),
-      player: { x: Player.holder.position.x, z: Player.holder.position.z, yaw: Player.yaw, pitch: Player.pitch },
+      player: { x: Player.holder.position.x, z: Player.holder.position.z, yaw: Player.yaw, pitch: Player.pitch, stamina: Player.stamina, sanity: Player.sanity, torchOn: Player.torchOn },
       portalActive: Forest.portalActive,
       rngSeed: 1337 // static for deterministic layout across sessions
     };
@@ -708,6 +836,9 @@ const SaveSystem = {
       Player.holder.position.z = data.player?.z || 0;
       Player.yaw = data.player?.yaw || 0;
       Player.pitch = data.player?.pitch || 0;
+      Player.stamina = data.player?.stamina ?? 1.0;
+      Player.sanity = data.player?.sanity ?? 1.0;
+      Player.torchOn = !!data.player?.torchOn;
       Forest.setPortalActive(!!data.portalActive);
       return true;
     }catch(e){ console.warn('Failed to load save', e); return false; }
@@ -765,6 +896,28 @@ const GameFlow = {
     App.ui.btnMenuFromEnd.addEventListener('click', ()=>{ this.resetToMenu(); });
     App.ui.btnMute.addEventListener('click', ()=>{ const muted = AudioManager.muteToggle(); App.ui.btnMute.textContent = muted ? '🔇' : '🔊'; });
 
+    // Pause/settings
+    const pauseOverlay = document.getElementById('pause-overlay');
+    const btnPause = document.getElementById('btn-pause');
+    const btnResume = document.getElementById('btn-resume');
+    const btnSaveNow = document.getElementById('btn-save-now');
+    const qualitySelect = document.getElementById('quality-select');
+    const lookRange = document.getElementById('look-sensitivity');
+    const volRange = document.getElementById('master-volume');
+    const togglePause = ()=>{
+      if(App.state === 'playing'){
+        App.state = 'paused'; pauseOverlay.classList.add('visible');
+      }else if(App.state === 'paused'){
+        App.state = 'playing'; pauseOverlay.classList.remove('visible');
+      }
+    };
+    btnPause.addEventListener('click', togglePause);
+    btnResume.addEventListener('click', togglePause);
+    btnSaveNow.addEventListener('click', ()=> SaveSystem.save());
+    qualitySelect.addEventListener('change', (e)=>{ App.settings.quality = e.target.value; PerfScaler.applyQuality(App.settings.quality); });
+    lookRange.addEventListener('input', (e)=>{ App.settings.sensitivity = parseFloat(e.target.value); });
+    volRange.addEventListener('input', (e)=>{ const v = parseFloat(e.target.value); App.settings.masterVolume = v; if(AudioManager.masterGain) AudioManager.masterGain.gain.value = AudioManager.isMuted ? 0 : v; });
+
     // Autosave every 30 seconds during play
     setInterval(()=>{ if(App.state === 'playing') SaveSystem.save(); }, 30000);
   },
@@ -783,6 +936,8 @@ const GameFlow = {
     // UI systems
     Controls.init();
     StoryManager.init();
+    UIHud.init();
+    PerfScaler.applyQuality(App.settings.quality);
   },
 
   setupScene(){
@@ -835,6 +990,7 @@ const GameFlow = {
       Monster.update(dt, t);
       Forest.update(dt, t);
       Gameplay.update(dt);
+      UIHud.updateFX(Player.stamina, Player.sanity);
 
       // Footsteps
       if((Math.abs(App.input.move.x) + Math.abs(App.input.move.y)) > 0.15){
@@ -842,6 +998,22 @@ const GameFlow = {
         if(AudioManager.footstepCooldown <= 0){
           AudioManager.footstepCooldown = 0.42;
           AudioManager.playBuffer(AudioManager.buffers.step, { gain: 0.7 + App.rng.next()*0.3, rate: 0.9 + App.rng.next()*0.2 });
+        }
+      }
+
+      // Reactive audio: breath and whispers
+      if(AudioManager.context){
+        AudioManager.breathTimer -= dt;
+        AudioManager.whisperTimer -= dt;
+        if(AudioManager.breathTimer <= 0 && Player.stamina < 0.35){
+          AudioManager.breathTimer = 2.0 - Player.stamina * 1.2;
+          AudioManager.playBuffer(AudioManager.buffers.breath, { gain: 0.25 + (1-Player.stamina)*0.35, rate: 1.0 });
+        }
+        const prox = Monster.proximity || 999;
+        const sanityLow = 1 - Player.sanity;
+        if(AudioManager.whisperTimer <= 0 && (prox < 16 || sanityLow > 0.3)){
+          AudioManager.whisperTimer = 3.5 - Math.min(2.5, sanityLow*3 + (16-prox)*0.08);
+          AudioManager.playBuffer(AudioManager.buffers.whisper, { gain: clamp(0.15 + sanityLow*0.4 + (16-prox)*0.02, 0.1, 0.6), rate: 0.9 + App.rng.next()*0.2 });
         }
       }
     }
@@ -867,4 +1039,54 @@ window.addEventListener('load', ()=>{
   wireMainMenu();
   GameFlow.start();
 });
+
+/* =========================================================
+   UI HUD and FX helpers
+   ========================================================= */
+const UIHud = {
+  staminaBar: null,
+  sanityBar: null,
+  fxSanity: null,
+  inventoryList: null,
+  init(){
+    this.staminaBar = document.querySelector('#bar-stamina .bar-inner');
+    this.sanityBar = document.querySelector('#bar-sanity .bar-inner');
+    this.fxSanity = document.getElementById('fx-sanity');
+    this.inventoryList = document.getElementById('inventory-list');
+  },
+  updateBars(stamina, sanity){
+    if(this.staminaBar) this.staminaBar.style.width = `${Math.round(stamina*100)}%`;
+    if(this.sanityBar) this.sanityBar.style.width = `${Math.round(sanity*100)}%`;
+  },
+  updateFX(stamina, sanity){
+    if(this.fxSanity){ this.fxSanity.style.opacity = `${clamp(1 - sanity, 0, 0.35)}`; }
+  },
+  refreshInventory(items){
+    if(!this.inventoryList) return;
+    this.inventoryList.innerHTML = '';
+    for(const it of items){
+      const li = document.createElement('li'); li.textContent = it; this.inventoryList.appendChild(li);
+    }
+  }
+};
+
+/* =========================================================
+   Performance Scaler
+   ========================================================= */
+const PerfScaler = {
+  applyQuality(level){
+    // Adjust pixel ratio and forest density
+    const base = Math.min(window.devicePixelRatio || 1, 1.5);
+    if(level === 'low'){
+      App.renderer.setPixelRatio(0.75);
+      Forest.treeCount = 320; Forest.rockCount = 80;
+    } else if(level === 'high'){
+      App.renderer.setPixelRatio(base);
+      Forest.treeCount = 520; Forest.rockCount = 150;
+    } else {
+      App.renderer.setPixelRatio(1.0);
+      Forest.treeCount = 450; Forest.rockCount = 120;
+    }
+  }
+};
 
