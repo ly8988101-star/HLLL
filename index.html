@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>غابة الهمس - لعبة رعب ثلاثية الأبعاد</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="description" content="لعبة رعب ثلاثية الأبعاد تعمل على المتصفح باستخدام Three.js" />
+    <!-- Three.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+</head>
+<body>
+    <!-- Canvas Container -->
+    <div id="game-root">
+        <canvas id="game-canvas"></canvas>
+    </div>
+
+    <!-- Main Menu -->
+    <div id="main-menu" class="overlay visible">
+        <div class="menu-card">
+            <h1>غابة الهمس</h1>
+            <p class="menu-desc">
+                في ليلة خريفية، تستيقظ على همس متقطع وصورة خاطفة لدائرة من الأشجار تُغلق عليك.
+                أنت الآن في غابة لا تنتهي، والوحش الذي يسكنها يتغذّى على الأصوات العالقة بين الجذوع.
+                طريق الخروج موجود، لكن الذكريات مبعثرة على شكل ومضات... اجمع الأدلة وافك رموز الرؤية الأولى.
+            </p>
+            <div class="menu-actions">
+                <button id="btn-start" class="btn primary">تشغيل اللعبة</button>
+                <button id="btn-load" class="btn">تحميل الحفظ المحلي</button>
+                <button id="btn-delete" class="btn danger">حذف الحفظ</button>
+            </div>
+            <small class="hint">أفضل تجربة على وضع ملء الشاشة والصوت مفعّل.</small>
+        </div>
+    </div>
+
+    <!-- Intro Narrative Overlay (Arabic) -->
+    <div id="intro-overlay" class="overlay">
+        <div class="intro-card">
+            <div id="intro-text" class="typewriter"></div>
+            <button id="btn-skip-intro" class="btn">تخطي</button>
+        </div>
+    </div>
+
+    <!-- Cryptic Vision (short animation) -->
+    <div id="vision-overlay" class="overlay">
+        <div class="vision-layer">
+            <div class="vision-ring"></div>
+            <div class="vision-text glitch">لا تنظر خلفك</div>
+            <div class="vision-text flicker">دائرة الأشجار تُغلق</div>
+            <div class="vision-text fade">الهمس يلتهم الأسماء</div>
+        </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="overlay no-bg">
+        <div class="hud-top">
+            <div id="clue-counter" class="chip">أدلة: 0 / 5</div>
+            <button id="btn-mute" class="chip">🔊</button>
+        </div>
+        <div id="hud-message" class="hud-message"></div>
+    </div>
+
+    <!-- Game Over -->
+    <div id="game-over" class="overlay">
+        <div class="menu-card">
+            <h2>النهاية</h2>
+            <p id="game-over-text">أُسكت همسك إلى الأبد...</p>
+            <button id="btn-restart" class="btn primary">إعادة اللعب</button>
+            <button id="btn-menu" class="btn">العودة إلى القائمة</button>
+        </div>
+    </div>
+
+    <!-- Ending Overlay -->
+    <div id="ending" class="overlay">
+        <div class="intro-card">
+            <div id="ending-text" class="typewriter"></div>
+            <button id="btn-menu-from-end" class="btn">العودة إلى القائمة</button>
+        </div>
+    </div>
+
+    <!-- Virtual Controls -->
+    <div id="controls-layer" class="no-bg">
+        <div id="joystick-left" class="joystick">
+            <div class="stick"></div>
+        </div>
+        <div id="look-area" class="look-area"></div>
+    </div>
+
+    <script src="./game.js"></script>
+</body>
+</html>
+

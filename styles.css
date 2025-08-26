@@ -1,0 +1,56 @@
+:root{
+  --bg: #0a0b0d;
+  --bg-soft: rgba(5,6,8,0.7);
+  --fg: #e8edf2;
+  --muted: #a5b0bb;
+  --accent: #5fd1a6;
+  --danger: #f05a68;
+}
+*{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html,body{ margin:0; padding:0; width:100%; height:100%; background:var(--bg); color:var(--fg); font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Naskh Arabic UI, "Noto Naskh Arabic", Arial, sans-serif; }
+#game-root{ position: fixed; inset:0; overflow:hidden; background:#050607; }
+#game-canvas{ width:100%; height:100%; display:block; touch-action:none; }
+
+.overlay{ position: fixed; inset:0; display:none; align-items:center; justify-content:center; padding:16px; background: radial-gradient( at 50% -10%, rgba(20,22,27,0.9), rgba(5,6,8,0.9) ); backdrop-filter: blur(2px); z-index: 10; }
+.overlay.visible{ display:flex; }
+.overlay.no-bg{ background: transparent; display:flex; pointer-events:none; z-index: 5; }
+
+.menu-card, .intro-card{ width:min(680px, 92vw); background: linear-gradient( to bottom, rgba(17,20,24,0.95), rgba(10,12,15,0.95) ); border:1px solid rgba(255,255,255,0.06); border-radius:14px; padding:20px 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+.menu-card h1{ margin:8px 0 8px; font-weight:800; letter-spacing:1px; text-shadow: 0 2px 14px rgba(0,0,0,0.5); }
+.menu-desc{ margin: 8px 6px 14px; line-height:1.7; color:var(--muted); }
+.menu-actions{ display:flex; gap:10px; flex-wrap:wrap; }
+
+.btn{ border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.04); color:var(--fg); padding:10px 14px; border-radius:12px; cursor:pointer; transition: all 160ms ease; }
+.btn.primary{ background: linear-gradient( to right, #2b9a7f, #4ccda3 ); color:#041512; font-weight:700; }
+.btn.danger{ background: linear-gradient( to right, #a02d37, #f05a68 ); color:#fff; }
+.btn:active{ transform: translateY(1px) scale(0.99); }
+
+.typewriter{ white-space: pre-wrap; line-height: 1.9; min-height: 140px; font-size: 16px; color: var(--fg); }
+#btn-skip-intro{ margin-top: 10px; }
+
+.vision-layer{ position: relative; width:100%; height:100%; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.vision-ring{ position:absolute; width: 280px; height: 280px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(255,255,255,0.1) inset, 0 0 40px 10px rgba(95,209,166,0.2), 0 0 120px 30px rgba(95,209,166,0.08); animation: pulse 2.6s ease-in-out infinite; }
+.vision-text{ position:absolute; font-weight:700; opacity:0.0; }
+.vision-text.glitch{ top:25%; animation: glitch 3.4s infinite; }
+.vision-text.flicker{ bottom:25%; animation: flicker 3.6s infinite; }
+.vision-text.fade{ animation: fadein 4s 1 forwards; }
+@keyframes pulse{ 0%,100%{ transform:scale(0.9); opacity:0.9 } 50%{ transform:scale(1.05); opacity:1 } }
+@keyframes glitch{ 0%{ opacity:0 } 20%{ opacity:1; transform: translateX(-2px) } 23%{ transform: translateX(2px) } 26%{ transform: translateX(0) } 60%{ opacity:0.3 } 100%{ opacity:0 } }
+@keyframes flicker{ 0%{ opacity:0 } 10%{ opacity:0.7 } 12%{ opacity:0.2 } 35%{ opacity:1 } 60%{ opacity:0.1 } 100%{ opacity:0.9 } }
+@keyframes fadein{ 0%{ opacity:0 } 100%{ opacity:1 } }
+
+.hud-top{ position: absolute; top: 10px; left: 10px; right: 10px; display:flex; justify-content: space-between; gap:10px; pointer-events: auto; }
+.chip{ background: rgba(0,0,0,0.45); color: var(--fg); border:1px solid rgba(255,255,255,0.1); padding: 8px 10px; border-radius: 12px; }
+.hud-message{ position: absolute; bottom: 12px; inset-inline: 12px; text-align: center; background: rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 10px; opacity: 0; transition: opacity 220ms ease; }
+.hud-message.show{ opacity: 1; }
+
+#controls-layer{ position: fixed; inset:0; z-index: 4; pointer-events:none; }
+.joystick{ position: absolute; bottom: 28px; left: 24px; width: 120px; height: 120px; border-radius: 60px; background: rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); pointer-events:auto; }
+.joystick .stick{ position:absolute; width: 64px; height:64px; left:28px; top:28px; border-radius: 50%; background: rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.2); }
+.look-area{ position: absolute; right:0; bottom:0; width: 52vw; height: 52vh; pointer-events:auto; }
+
+/* Responsive tweaks */
+@media (min-width: 900px){
+  .look-area{ width: 40vw; height: 60vh; }
+}
+
